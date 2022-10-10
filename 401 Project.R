@@ -17,4 +17,4 @@ t19<-PUF2019_100920 %>%
 t18_yes<-PUF2018_100819 %>%
   filter(auinpyr == 1|auoptyr == 1)
 
-
+t<-merge(t20, t19, t18)
