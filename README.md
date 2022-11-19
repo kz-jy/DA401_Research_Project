@@ -11,7 +11,7 @@ Suicide_Risk.R: unorganized code attempt for the whole research
 ### R Packages
 R version 4.2.2
 
-dplyr (version 1.0.10): data cleaning
+dplyr (version 1.0.10): data cleaning /n
 caret (version 6.0-93): used for training Knn, decision tree, random forest models
 jtools (version 2.2.0): used for plotting interactive effects among categorical variables
 interactions (version 1.1.0): used for plotting interactive effects among continuous variables
