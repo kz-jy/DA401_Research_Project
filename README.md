@@ -5,6 +5,7 @@ Suicide, as a serious public health issue, that highly related with mental illne
 
 ### Code File
 Suicide_Risk Report.Rmd: an R markdown file with cleaned code and comments
+Suicide_Risk.R: unorganized code attempt for the whole research
 
 
 ### R Packages
