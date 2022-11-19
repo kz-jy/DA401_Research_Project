@@ -379,5 +379,10 @@ f1_nn_h = 2*(precision_h*recall_h)/(precision_h+recall_h)
 f1_nn_m = 2*(precision_m*recall_m)/(precision_m+recall_m)
 f1_nn_l = 2*(precision_l*recall_l)/(precision_l+recall_l)
 f1_nn = c(f1_nn_l,f1_nn_m,f1_nn_h)
+
+f1 = data.frame("." = c("Low","Moderate","High"), Decision_tree = f1_dtree[2:4],
+                Random_forest = f1_rf[2:4],KNN = f1_knn[2:4], Neural_network = f1_nn)
+
+kable(f1)
 ```
 
