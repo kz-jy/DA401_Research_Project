@@ -1,0 +1,383 @@
+---
+title: "DA401 Suicide Risk"
+author: "Jiayu Zhao"
+date: "11/15/2022"
+output:
+  html_document:
+    code_folding: hide
+    theme: journal
+    toc: yes
+    toc_depth: 3
+  pdf_document:
+    latex_engine: xelatex
+    toc: yes
+    toc_depth: '3'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(caret)
+library(MASS)
+library(jtools)
+library(nnet)
+library(interactions)
+library(keras)
+library(tensorflow)
+library(mltest)
+
+setwd("~/Documents/GitHub/DA401_SuicideRisk_research")
+load("NSDUH_2020.RData")
+load("NSDUH_2019.RData")
+load("NSDUH_2018.RData")
+```
+
+## Data cleaning
+```{r}
+true20<- NSDUH_2020%>%
+  filter(auinpyr == 1|auoptyr == 1)
+true19<-PUF2019_100920 %>%
+  filter(auinpyr == 1|auoptyr == 1)
+true18<-PUF2018_100819 %>%
+  filter(auinpyr == 1|auoptyr == 1)
+true18$QUESTID2<-as.integer(true18$QUESTID2)
+true19$QUESTID2<-as.integer(true19$QUESTID2)
+SuicideRisk<-bind_rows(true20, true19, true18)
+
+SR<-SuicideRisk %>% 
+  dplyr::select(DSTHOP30, mhsuithk, mhsuipln, mhsuitry, K6SCMON, SMIPP_U, AUNMPSY2, AUNMPGE2, AUNMMED2,AUNMAHS2,
+                AUNMRES2,AUNMSFA2, AUNMMEN2, AUNMTHE2, AUNMDOC2, AUNMCLN2, AUNMDTM2, AUNMOTO2, amdelt, ASDSOVL2,
+                CATAG6, irmarit,irsex, IREDUHIGHST2, NEWRACE2, wrkdpstyr, income, ALCWD2SX, alcndmor)
+
+val1 = c(83,91,93,94,97,98,99) #value for the invalid data (unknow, no repsonse...)
+SR <- as.data.frame(sapply(SR, function(x) replace(x, x %in% val1, 0)))
+SR$DSTHOP30=as.numeric(factor(SR$DSTHOP30, levels = c(5,4,3,2,1), labels = c(1,2,3,4,5)))
+
+val2 = c(985,994,997,998,999)
+SR[7:18] <- sapply(SR[7:18], function(x) replace(x, x %in% val2, 0))
+
+#Combine treatment from multiple facilities into a single var
+SR$inpatient<-rowSums(SR[7:12])
+SR$outpatient <- rowSums(SR[13:18])
+```
+
+## Risk Index
+
+#### Suicide Risk Level (categorical)
+```{r}
+SR<-SR %>% mutate(risk_level = case_when(as.numeric(DSTHOP30>4) + as.numeric(mhsuithk==1)+ 
+                                           as.numeric(mhsuipln == 1) + as.numeric(mhsuitry == 1) +
+                                           as.numeric(K6SCMON > 16) + as.numeric(SMIPP_U > 0.65) >= 3 ~"high",
+                                         as.numeric(DSTHOP30<5 & DSTHOP30>1) + as.numeric(mhsuithk == 1) +
+                                           as.numeric(mhsuipln == 1 | mhsuitry == 1) + 
+                                           as.numeric(K6SCMON <= 16 & K6SCMON >= 8) + 
+                                           as.numeric(SMIPP_U <= 0.65 & SMIPP_U > 0.3) >= 3 ~"moderate",
+                                         as.numeric(DSTHOP30<3) + as.numeric(K6SCMON < 8) +
+                                           as.numeric(mhsuithk== 1 | mhsuipln == 1 | mhsuitry == 1) +
+                                           as.numeric(SMIPP_U <= 0.3) >= 2 ~ "low"))
+SR$risk_level[is.na(SR$risk_level)] <- "no"
+```
+
+#### Suicide Risk Score (continuous)
+```{r}
+SR_reg<-SR
+SR_reg<-SR_reg[c(-7:-18)]
+SR_reg[c(7:17)] <- lapply(SR_reg[c(7:17)], factor)
+
+SR_reg$K6SCMON = as.numeric(scale(SR_reg$K6SCMON))
+SR_reg <- SR_reg %>% rowwise() %>%
+  mutate(risk_score = sum(c_across(DSTHOP30:SMIPP_U)))
+```
+
+
+## Regression
+
+#### ANOVA
+```{r}
+library(tidyverse)
+library(ggpubr)
+library(rstatix)
+
+set.seed(123)
+SR_reg %>% sample_n_by(., size = 1)
+
+# Check normaility assumption
+normality <- lm(risk_score ~ amdelt+ASDSOVL2+CATAG6+irmarit+irsex+IREDUHIGHST2+NEWRACE2+wrkdpstyr+
+                  income+alcndmor+ALCWD2SX+inpatient+outpatient, data = SR_reg)
+# Create a QQ plot of residuals
+ggqqplot(residuals(normality))
+# Compute Shapiro-Wilk test of normality
+shapiro_test(residuals(normality))
+
+## Homogeneity of variance
+SR_reg %>% levene_test(risk_score ~ amdelt+ASDSOVL2+CATAG6+irmarit+irsex+IREDUHIGHST2+NEWRACE2+wrkdpstyr+
+                         income+alcndmor+ALCWD2SX+inpatient+outpatient, data = SR_reg)
+
+# Test
+aov<- aov(data = SR_reg, risk_score ~ (amdelt+ASDSOVL2+CATAG6+irmarit+irsex+IREDUHIGHST2+NEWRACE2+wrkdpstyr+
+                                         income+alcndmor+ALCWD2SX+inpatient+outpatient)^2)
+summary(aov)
+
+#Post-hoc test
+post_hoc<-TukeyHSD(aov, which = c('amdelt','ASDSOVL2','CATAG6','IREDUHIGHST2','income','alcndmor','ALCWD2SX',
+                                  'irsex','NEWRACE2')) 
+```
+
+#### Plots for Interactive Effects
+```{r}
+#Linear models for two-way interactions
+mde_in<-lm(data = SR_reg, risk_score ~ amdelt*inpatient)
+in_out<-lm(data = SR_reg, risk_score ~ inpatient*outpatient)
+mde_out<-lm(data = SR_reg, risk_score ~ amdelt*outpatient)
+severity_in<-lm(data = SR_reg, risk_score ~ inpatient*ASDSOVL2 )
+age_sex<-lm(data = SR_reg, risk_score ~ CATAG6*irsex)
+age_edu<-lm(data = SR_reg, risk_score ~ IREDUHIGHST2*CATAG6)
+mar_emp<-lm(data = SR_reg, risk_score ~ irmarit*wrkdpstyr)
+mar_drink<-lm(data = SR_reg, risk_score ~ irmarit*alcndmor)
+mar_in<-lm(data = SR_reg, risk_score ~ irmarit*inpatient)
+sex_symp<-lm(data = SR_reg, risk_score ~ irsex*ALCWD2SX)
+edu_in<-lm(data = SR_reg, risk_score ~ IREDUHIGHST2*inpatient)
+edu_out<-lm(data = SR_reg, risk_score ~ IREDUHIGHST2*outpatient)
+```
+
+```{r}
+#Plot the interactive effective
+in_outP<-interact_plot(in_out, pred = inpatient , modx = outpatient)  #No
+mde_outP<-interact_plot(mde_out, pred = outpatient, modx = amdelt, legend.main = "MDE", 
+                        x.label = "# of Times Receiving Outpatient Treatment",
+                        modx.labels = c("Yes","No"),
+                        main.title = "Interactions between MDE and Outpatient Treatment")
+severity_inP<-interact_plot(severity_in, pred = inpatient , modx = ASDSOVL2)  #No
+age_sexP<-cat_plot(age_sex, pred = CATAG6, modx = irsex, geom = "line")  #No
+age_eduP<-cat_plot(age_edu, pred = IREDUHIGHST2, modx = CATAG6,geom = "line",
+                   legend.main = "Age",
+                   x.label = "Education Level",
+                   modx.labels = c("18-25","26-34","35-49","50-64","65 or older"),
+                   pred.labels = c("5th grade or less","6th grade","7th grade","8th grade","9th grade",
+                                   "10th grade","11th/12th grade, no diploma","High school diploma",
+                                   "College credit, no degree","Associate's degree",
+                                   "College graduate or higher"),
+                   main.title = "Interactions between Education Level and Age")+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+mar_empP<-cat_plot(mar_emp, pred = irmarit, modx = wrkdpstyr, geom = "line")  #No
+mar_drinkP<-cat_plot(mar_drink, pred = irmarit, modx = alcndmor, geom = "line")  #No
+mar_inP<-interact_plot(mar_in, pred = inpatient , modx = irmarit) #No
+sex_sympP<-cat_plot(sex_symp, pred = irsex, modx = ALCWD2SX, geom = "line") #No
+edu_inP<-interact_plot(edu_in, pred = inpatient, modx = IREDUHIGHST2, colors="Rainbow",
+                       legend.main = "Highest Education Level",
+                       x.label = "# of Times Receiving Inpatient Treatment",
+                       modx.labels = c("5th grade or less","6th grade","7th grade","8th grade","9th grade",
+                                       "10th grade","11th/12th grade completed, no diploma","High school diploma",
+                                       "College credit, no degree","Associate's degree",
+                                       "College graduate or higher"),
+                       main.title = "Interactions between Education Level and Inpatient Treatment")    #yes
+edu_outP<-interact_plot(edu_out, pred = outpatient, modx = IREDUHIGHST2, colors="Rainbow",
+                        legend.main = "Highest Education Level",
+                        modx.labels = c("5th grade or less","6th grade","7th grade","8th grade","9th grade",
+                                       "10th grade","11th/12th grade completed, no diploma","High school diploma",
+                                       "College credit, no degree","Associate's degree",
+                                       "College graduate or higher"),
+                        x.label = "# of Times Receiving Outpatient Treatment",
+                        main.title = "Interactions between Education Level and Outpatient Treatment")  #yes
+```
+
+```{r}
+mde_outP
+```
+
+```{r}
+age_eduP
+```
+
+```{r}
+edu_inP
+```
+```{r}
+edu_outP
+```
+
+
+## Classification
+```{r}
+SR<-a[c(-1:-18)]
+SR<-SR[c(1:11, 13, 14, 12)] #change order of the column
+SR<-na.omit(SR[c(1,3:14)]) #omit the variable with too much NA and all rows w/ NA (drop ASDSOVL2)
+SR[c(1,3,4,6,7,9,10,13)] <- lapply(SR[c(1,3,4,6,7,9,10,13)], factor)
+```
+
+#### Training Testing set
+```{r}
+# Training Testing set
+set.seed(1)
+index = createDataPartition(y=SR$risk_level, p=0.7, list=FALSE) 
+sr_train =SR[index,]
+sr_test = SR[-index,]
+
+ctrl = trainControl(method="repeatedcv", number = 10, repeats = 5)
+```
+
+#### knn
+```{r}
+train_knn<-sr_train
+train_knn$risk_level = factor(train_knn$risk_level, levels = c(1,2,3,4), labels = c("no","low","moderate","high"))
+trctrl_knn= trainControl(method = "repeatedcv", number = 8, repeats = 3, 
+                         classProbs = TRUE, summaryFunction = multiClassSummary())
+
+knn = train(risk_level ~ ., data = train_knn, method = "knn", trControl=trctrl_knn,
+            preProcess = c("center", "scale"),tuneLength = 20, metric = "ROC")
+knn
+plot(knn)
+```
+
+#### Decision Tree
+```{r}
+ctrl_dt = trainControl(method="repeatedcv",number=10, repeats=5)
+
+dtree = train(risk_level~., data = sr_train, method = "rpart", trControl = ctrl_dt,tuneLength = 30)
+dtree
+prp(dtree$finalModel)
+```
+
+#### Random Forest
+```{r}
+ctrl_rf = trainControl(method = "oob")
+rf = caret::train(risk_level ~., data = sr_train, method = "rf", trControl = ctrl_rf,
+           tuneLength = 8, ntree = 150, importance = TRUE)
+```
+
+#### Neural Network
+```{r}
+train_nn<-sr_train
+train_nn$risk_level = factor(train_nn$risk_level, levels = c("no","low","moderate","high"), labels = c(1,2,3,4))
+dummy <- dummyVars(" ~ .", data=train_nn[c(1,3,4,6,7,9,10,13)])
+newdata <- data.frame(predict(dummy, newdata = train_nn[c(1,3,4,6,7,9,10,13)]))
+train_nn<-cbind(train_nn[c(2,5,8,11,12)],newdata)
+
+nn <- keras_model_sequential() %>%  
+  layer_flatten(input_shape = c(29)) %>%  
+  layer_dense(units = 10, activation = "relu")%>%
+  layer_dense(units = 6, activation = "relu")%>%
+  layer_dense(units = 4, activation = "softmax")
+nn%>% compile(
+    loss = "categorical_crossentropy",
+    optimizer = 'rmsprop',
+    metrics = 'accuracy')
+nn %>% fit(x = as.matrix(train_nn[,c(1:29)]), 
+          y = as.matrix(train_nn[,c(30:33)]), 
+          epochs = 15, validation_split = 0.3,verbose = 2)
+```
+
+#### Testing
+```{r}
+sr_test<-sr_test[c(7:19)]
+
+# KNN, DT, RF for prediction
+pred_knn = predict(knn,sr_test[1:12])
+pred_dtree = predict(dtree,sr_test[1:12])
+pred_rf = predict(rf,sr_test)
+```
+
+```{r}
+# Neural network for prediction
+test_nn<-sr_test
+test_nn$risk_level = factor(test_nn$risk_level, levels = c("no","low","moderate","high"), labels = c(1,2,3,4))
+dummy1 <- dummyVars(" ~ .", data=test_nn[c(1,3,4,6,7,9,10,13)])
+newdata1 <- data.frame(predict(dummy1, newdata = test_nn[c(1,3,4,6,7,9,10,13)]))
+test_nn<-cbind(test_nn[c(2,5,8,11,12)],newdata1)
+
+pred_nn = nn %>% predict(as.matrix(test_nn[,c(1:29)]))
+pred_nn1 <- data.frame(pred_nn)
+colnames(pred_nn1) <- c(1,2,3,4)
+pred_nn1$risk_level <- apply(pred_nn1,1,which.max)
+pred_nn1$risk_level = as.factor(pred_nn1$risk_level)
+pred_nn1$risk_level <- factor(pred_nn1$risk_level, levels = c(levels(pred_nn1$risk_level), "1"))
+```
+
+### Predictions on Testing Set
+```{r}
+sr_test<-sr_test[c(7:19)]
+
+pred_knn = predict(knn,sr_test[1:12])
+pred_dtree = predict(dtree,sr_test[1:12])
+pred_rf = predict(rf,sr_test)
+pred_nn1 = read.csv("pred_nn1.csv")
+pred_nn1$risk_level = as.factor(pred_nn1$risk_level)
+pred_nn1$risk_level <- factor(pred_nn1$risk_level, levels = c(levels(pred_nn1$risk_level), "1"))
+
+Evaluation<-data.frame(pred_knn, pred_dtree, pred_rf, pred_nn = pred_nn1$risk_level, Actual=sr_test$risk_level)
+```
+
+
+### True Positive Cases
+```{r}
+for (rows in Evaluation){
+  correctM_dt = ifelse (pred_dtree == 3 & Evaluation$Actual == 3, 1, 0)
+  correctH_dt = ifelse (pred_dtree == 4 & Evaluation$Actual == 4, 1, 0)
+  correctL_dt = ifelse (pred_dtree == 2 & Evaluation$Actual == 2, 1, 0)
+  
+  correctM_rf = ifelse (pred_rf == 3 & Evaluation$Actual == 3, 1, 0)
+  correctH_rf = ifelse (pred_rf == 4 & Evaluation$Actual == 4, 1, 0)
+  correctL_rf = ifelse (pred_rf == 2 & Evaluation$Actual == 2, 1, 0)
+  
+  correctM_knn = ifelse (pred_knn == "moderate" & Evaluation$Actual == 3, 1, 0)
+  correctH_knn = ifelse (pred_knn == "high" & Evaluation$Actual == 4, 1, 0)
+  correctL_knn = ifelse (pred_knn == "low" & Evaluation$Actual == 2, 1, 0)
+  
+  correctM_nn = ifelse (Evaluation$pred_nn == 3 & Evaluation$Actual == 3, 1, 0)
+  correctH_nn = ifelse (Evaluation$pred_nn == 4 & Evaluation$Actual == 4, 1, 0)
+  correctL_nn = ifelse (Evaluation$pred_nn == 2 & Evaluation$Actual == 2, 1, 0)
+}
+
+sum(correctM_rf)
+sum(correctH_rf)
+sum(correctL_rf)
+
+sum(correctM_nn)
+sum(correctH_nn)
+sum(correctL_nn)
+
+sum(correctM_knn)
+sum(correctH_knn)
+sum(correctL_knn)
+
+sum(correctM_dt)
+sum(correctH_dt)
+sum(correctL_dt)
+table(Evaluation$Actual)
+
+table_correct = data.frame(" " = c("**High**","**Moderate**","**Low**"), KNN = c(10,0,2574), 
+                           Decision_Tree = c(82,0,2549), Random_Forest = c(68,0,2541),Neural_Network = c(25,1,2461),
+                           Actual_val = c(412,335,2580))
+kable(table_correct)
+```
+
+### F1-Score
+```{r}
+metrics_dtree <- ml_test(Evaluation$pred_dtree, Evaluation$Actual, output.as.table = TRUE)
+metrics_rf <- ml_test(Evaluation$pred_rf, Evaluation$Actual, output.as.table = TRUE)
+Evaluation$pred_knn = factor(Evaluation$pred_knn, levels = c("no","low","moderate","high"),labels = c(1,2,3,4))
+metrics_knn <- ml_test(Evaluation$pred_knn, Evaluation$Actual, output.as.table = TRUE)
+
+f1_dtree <- metrics_dtree$F1
+f1_rf <- metrics_rf$F1
+f1_knn <- metrics_knn$F1
+
+#### NN
+precision_h = 25/162
+precision_m = 1/4
+precision_l = 2461/3275
+
+recall_h = 25/412
+recall_m = 1/335
+recall_l = 2461/2580
+
+f1_nn_h = 2*(precision_h*recall_h)/(precision_h+recall_h)
+f1_nn_m = 2*(precision_m*recall_m)/(precision_m+recall_m)
+f1_nn_l = 2*(precision_l*recall_l)/(precision_l+recall_l)
+f1_nn = c(f1_nn_l,f1_nn_m,f1_nn_h)
+```
+
