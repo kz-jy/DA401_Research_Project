@@ -11,13 +11,14 @@ Suicide_Risk.R: unorganized code attempt for the whole research
 ### R Packages
 R version 4.2.2
 
-dplyr (version 1.0.10): data cleaning /n
-caret (version 6.0-93): used for training Knn, decision tree, random forest models
-jtools (version 2.2.0): used for plotting interactive effects among categorical variables
-interactions (version 1.1.0): used for plotting interactive effects among continuous variables
-keras (version 2.9.0): building and training neural network model
-tensorflow (version 2.9.0): training neural network
-rpart.plot (version 3.1.1): visualizing decision tree
+dplyr (version 1.0.10): data cleaning <br />
+caret (version 6.0-93): used for training Knn, decision tree, random forest models <br />
+jtools (version 2.2.0): used for plotting interactive effects among categorical variables; calculating F1-score <br />
+interactions (version 1.1.0): used for plotting interactive effects among continuous variables <br />
+keras (version 2.9.0): building and training neural network model <br />
+tensorflow (version 2.9.0): training neural network <br />
+rpart.plot (version 3.1.1): visualizing decision tree <br />
+
 
 
 ### Data Files
