@@ -116,7 +116,10 @@ shapiro_test(residuals(normality))
 ## Homogeneity of variance
 SR_reg %>% levene_test(risk_score ~ amdelt+ASDSOVL2+CATAG6+irmarit+irsex+IREDUHIGHST2+NEWRACE2+wrkdpstyr+
                          income+alcndmor+ALCWD2SX+inpatient+outpatient, data = SR_reg)
+```
 
+
+```{r}
 # Test
 aov<- aov(data = SR_reg, risk_score ~ (amdelt+ASDSOVL2+CATAG6+irmarit+irsex+IREDUHIGHST2+NEWRACE2+wrkdpstyr+
                                          income+alcndmor+ALCWD2SX+inpatient+outpatient)^2)
@@ -196,6 +199,7 @@ age_eduP
 ```{r}
 edu_inP
 ```
+
 ```{r}
 edu_outP
 ```
@@ -203,10 +207,9 @@ edu_outP
 
 ## Classification
 ```{r}
-SR<-a[c(-1:-18)]
-SR<-SR[c(1:11, 13, 14, 12)] #change order of the column
+SR<-SR[c(-1:-18)]
 SR<-na.omit(SR[c(1,3:14)]) #omit the variable with too much NA and all rows w/ NA (drop ASDSOVL2)
-SR[c(1,3,4,6,7,9,10,13)] <- lapply(SR[c(1,3,4,6,7,9,10,13)], factor)
+SR[c(1:10)] <- lapply(SR[c(1:9)], factor)
 ```
 
 #### Training Testing set
@@ -223,23 +226,19 @@ ctrl = trainControl(method="repeatedcv", number = 10, repeats = 5)
 #### knn
 ```{r}
 train_knn<-sr_train
-train_knn$risk_level = factor(train_knn$risk_level, levels = c(1,2,3,4), labels = c("no","low","moderate","high"))
-trctrl_knn= trainControl(method = "repeatedcv", number = 8, repeats = 3, 
-                         classProbs = TRUE, summaryFunction = multiClassSummary())
-
-knn = train(risk_level ~ ., data = train_knn, method = "knn", trControl=trctrl_knn,
-            preProcess = c("center", "scale"),tuneLength = 20, metric = "ROC")
-knn
-plot(knn)
+#train_knn$risk_level = factor(train_knn$risk_level, levels = c(1,2,3,4), labels = c("no","low","moderate","high"))
+trctrl_knn= trainControl(method = "repeatedcv", number = 6, repeats = 2, classProbs = TRUE)
+knn = caret::train(risk_level ~ ., data = train_knn, method = 'knn', trControl=trctrl_knn,
+            preProcess = c("center", "scale"),tuneLength = 20)
+#plot(knn)
 ```
 
 #### Decision Tree
 ```{r}
 ctrl_dt = trainControl(method="repeatedcv",number=10, repeats=5)
 
-dtree = train(risk_level~., data = sr_train, method = "rpart", trControl = ctrl_dt,tuneLength = 30)
-dtree
-prp(dtree$finalModel)
+dtree = caret::train(risk_level~., data = sr_train, method = "rpart", trControl = ctrl_dt,tuneLength = 30)
+#prp(dtree$finalModel)
 ```
 
 #### Random Forest
@@ -258,7 +257,7 @@ newdata <- data.frame(predict(dummy, newdata = train_nn[c(1,3,4,6,7,9,10,13)]))
 train_nn<-cbind(train_nn[c(2,5,8,11,12)],newdata)
 
 nn <- keras_model_sequential() %>%  
-  layer_flatten(input_shape = c(29)) %>%  
+  layer_flatten(input_shape = c(28)) %>%  
   layer_dense(units = 10, activation = "relu")%>%
   layer_dense(units = 6, activation = "relu")%>%
   layer_dense(units = 4, activation = "softmax")
@@ -266,18 +265,18 @@ nn%>% compile(
     loss = "categorical_crossentropy",
     optimizer = 'rmsprop',
     metrics = 'accuracy')
-nn %>% fit(x = as.matrix(train_nn[,c(1:29)]), 
-          y = as.matrix(train_nn[,c(30:33)]), 
+nn %>% fit(x = as.matrix(train_nn[,c(1:28)]), 
+           y = as.matrix(train_nn[,c(29:32)]), 
           epochs = 15, validation_split = 0.3,verbose = 2)
 ```
 
-#### Testing
-```{r}
-sr_test<-sr_test[c(7:19)]
+### Testing
 
+#### Predictions on Testing Set
+```{r}
 # KNN, DT, RF for prediction
-pred_knn = predict(knn,sr_test[1:12])
-pred_dtree = predict(dtree,sr_test[1:12])
+pred_knn = predict(knn,sr_test)
+pred_dtree = predict(dtree,sr_test)
 pred_rf = predict(rf,sr_test)
 ```
 
@@ -289,7 +288,7 @@ dummy1 <- dummyVars(" ~ .", data=test_nn[c(1,3,4,6,7,9,10,13)])
 newdata1 <- data.frame(predict(dummy1, newdata = test_nn[c(1,3,4,6,7,9,10,13)]))
 test_nn<-cbind(test_nn[c(2,5,8,11,12)],newdata1)
 
-pred_nn = nn %>% predict(as.matrix(test_nn[,c(1:29)]))
+pred_nn = nn %>% predict(as.matrix(test_nn[,c(1:28)]))
 pred_nn1 <- data.frame(pred_nn)
 colnames(pred_nn1) <- c(1,2,3,4)
 pred_nn1$risk_level <- apply(pred_nn1,1,which.max)
@@ -297,17 +296,7 @@ pred_nn1$risk_level = as.factor(pred_nn1$risk_level)
 pred_nn1$risk_level <- factor(pred_nn1$risk_level, levels = c(levels(pred_nn1$risk_level), "1"))
 ```
 
-### Predictions on Testing Set
 ```{r}
-sr_test<-sr_test[c(7:19)]
-
-pred_knn = predict(knn,sr_test[1:12])
-pred_dtree = predict(dtree,sr_test[1:12])
-pred_rf = predict(rf,sr_test)
-pred_nn1 = read.csv("pred_nn1.csv")
-pred_nn1$risk_level = as.factor(pred_nn1$risk_level)
-pred_nn1$risk_level <- factor(pred_nn1$risk_level, levels = c(levels(pred_nn1$risk_level), "1"))
-
 Evaluation<-data.frame(pred_knn, pred_dtree, pred_rf, pred_nn = pred_nn1$risk_level, Actual=sr_test$risk_level)
 ```
 
