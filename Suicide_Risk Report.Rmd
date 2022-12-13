@@ -68,15 +68,16 @@ SR$outpatient <- rowSums(SR[13:18])
 ## Risk Index
 
 #### Suicide Risk Level (categorical)
+
 ```{r}
-SR<-SR %>% mutate(risk_level = case_when(as.numeric(DSTHOP30>4) + as.numeric(mhsuithk==1)+ 
+SR<-SR %>% mutate(risk_level = case_when(as.numeric(DSTHOP30>3) + as.numeric(mhsuithk==1)+ 
                                            as.numeric(mhsuipln == 1) + as.numeric(mhsuitry == 1) +
                                            as.numeric(K6SCMON > 16) + as.numeric(SMIPP_U > 0.65) >= 3 ~"high",
-                                         as.numeric(DSTHOP30<5 & DSTHOP30>1) + as.numeric(mhsuithk == 1) +
+                                         as.numeric(DSTHOP30<4 & DSTHOP30>2) + as.numeric(mhsuithk == 1) +
                                            as.numeric(mhsuipln == 1 | mhsuitry == 1) + 
                                            as.numeric(K6SCMON <= 16 & K6SCMON >= 8) + 
-                                           as.numeric(SMIPP_U <= 0.65 & SMIPP_U > 0.3) >= 3 ~"moderate",
-                                         as.numeric(DSTHOP30<3) + as.numeric(K6SCMON < 8) +
+                                           as.numeric(SMIPP_U <= 0.65 & SMIPP_U > 0.3) >= 2 ~"moderate",
+                                         as.numeric(DSTHOP30<2) + as.numeric(K6SCMON < 8) +
                                            as.numeric(mhsuithk== 1 | mhsuipln == 1 | mhsuitry == 1) +
                                            as.numeric(SMIPP_U <= 0.3) >= 2 ~ "low"))
 SR$risk_level[is.na(SR$risk_level)] <- "no"
@@ -96,7 +97,7 @@ SR_reg <- SR_reg %>% rowwise() %>%
 
 ## Regression
 
-#### ANOVA
+### ANOVA
 ```{r}
 library(tidyverse)
 library(ggpubr)
@@ -121,41 +122,89 @@ SR_reg %>% levene_test(risk_score ~ amdelt+ASDSOVL2+CATAG6+irmarit+irsex+IREDUHI
 
 ```{r}
 # Test
-aov<- aov(data = SR_reg, risk_score ~ (amdelt+ASDSOVL2+CATAG6+irmarit+irsex+IREDUHIGHST2+NEWRACE2+wrkdpstyr+
+aov<-aov(data = SR_reg, risk_score ~ (amdelt+CATAG6+irmarit+irsex+IREDUHIGHST2+NEWRACE2+wrkdpstyr+
                                          income+alcndmor+ALCWD2SX+inpatient+outpatient)^2)
 summary(aov)
 
 #Post-hoc test
-post_hoc<-TukeyHSD(aov, which = c('amdelt','ASDSOVL2','CATAG6','IREDUHIGHST2','income','alcndmor','ALCWD2SX',
-                                  'irsex','NEWRACE2')) 
+post_hoc1<-TukeyHSD(aov1, which = c('amdelt','CATAG6','irmarit','irsex','IREDUHIGHST2','NEWRACE2','income','ALCWD2SX','alcndmor')) 
+post_hoc1
 ```
 
-#### Plots for Interactive Effects
+
+### Plots for Interactive Effects
+
+##### Linear models for two-way interactions
 ```{r}
-#Linear models for two-way interactions
+## MDE
+mde_age<-glm(data = SR_reg, risk_score ~ amdelt*CATAG6)
+mde_mar<-glm(data = SR_reg, risk_score ~ amdelt*irmarit)
+mde_sex<-glm(data = SR_reg, risk_score ~ amdelt*irsex)
+mde_edu<-glm(data = SR_reg, risk_score ~ amdelt*IREDUHIGHST2)
+mde_emp<-glm(data = SR_reg, risk_score ~ amdelt*wrkdpstyr)
+mde_income<-glm(data = SR_reg, risk_score ~ amdelt*income) #!
+mde_tolerance<-glm(data = SR_reg, risk_score ~ amdelt*alcndmor) #!
 mde_in<-lm(data = SR_reg, risk_score ~ amdelt*inpatient)
-in_out<-lm(data = SR_reg, risk_score ~ inpatient*outpatient)
-mde_out<-lm(data = SR_reg, risk_score ~ amdelt*outpatient)
-severity_in<-lm(data = SR_reg, risk_score ~ inpatient*ASDSOVL2 )
-age_sex<-lm(data = SR_reg, risk_score ~ CATAG6*irsex)
-age_edu<-lm(data = SR_reg, risk_score ~ IREDUHIGHST2*CATAG6)
-mar_emp<-lm(data = SR_reg, risk_score ~ irmarit*wrkdpstyr)
-mar_drink<-lm(data = SR_reg, risk_score ~ irmarit*alcndmor)
-mar_in<-lm(data = SR_reg, risk_score ~ irmarit*inpatient)
-sex_symp<-lm(data = SR_reg, risk_score ~ irsex*ALCWD2SX)
-edu_in<-lm(data = SR_reg, risk_score ~ IREDUHIGHST2*inpatient)
-edu_out<-lm(data = SR_reg, risk_score ~ IREDUHIGHST2*outpatient)
 ```
 
 ```{r}
-#Plot the interactive effective
-in_outP<-interact_plot(in_out, pred = inpatient , modx = outpatient)  #No
-mde_outP<-interact_plot(mde_out, pred = outpatient, modx = amdelt, legend.main = "MDE", 
-                        x.label = "# of Times Receiving Outpatient Treatment",
+## Age
+age_sex<-glm(data = SR_reg, risk_score ~ CATAG6*irsex)
+age_edu1<-glm(data = SR_reg, risk_score ~ IREDUHIGHST2*CATAG6)
+age_emp<-glm(data = SR_reg, risk_score ~ CATAG6*wrkdpstyr)
+
+## Marital
+mar_emp<-glm(data = SR_reg, risk_score ~ irmarit*wrkdpstyr)
+mar_tolerance<-glm(data = SR_reg, risk_score ~ irmarit*alcndmor)
+mar_income<-glm(data = SR_reg, risk_score ~ irmarit*income) 
+mar_in<-lm(data = SR_reg, risk_score ~ irmarit*inpatient)
+mar_symp<-glm(data = SR_reg, risk_score ~ irmarit*ALCWD2SX)
+```
+
+```{r}
+## Sex
+sex_edu<-glm(data = SR_reg, risk_score ~ irsex*IREDUHIGHST2)
+
+## Education
+edu_in<-lm(data = SR_reg, risk_score ~ IREDUHIGHST2*inpatient)
+edu_out<-lm(data = SR_reg, risk_score ~ IREDUHIGHST2*outpatient) 
+edu_tolerance<-glm(data = SR_reg, risk_score ~ IREDUHIGHST2*alcndmor)
+
+## Race
+race_in<-lm(data = SR_reg, risk_score ~ NEWRACE2*inpatient)
+
+## Employment
+emp_income<-glm(data = SR_reg, risk_score ~ wrkdpstyr*income) #!
+emp_in<-lm(data = SR_reg, risk_score ~ wrkdpstyr*inpatient) #!
+
+## Income
+income_tolerance<-glm(data = SR_reg, risk_score ~ income*alcndmor) #!
+income_in<-lm(data = SR_reg, risk_score ~ income*inpatient)
+
+## Symptoms
+symp_out<-lm(data = SR_reg, risk_score ~ ALCWD2SX*outpatient) #!
+```
+
+##### Plot the interactive effective
+```{r}
+## MDE
+mde_ageP<-cat_plot(mde_age, pred = amdelt, modx = CATAG6, geom = "line") #No, because the lines are parallel 
+mde_marP<-cat_plot(mde_mar, pred = amdelt, modx = irmarit, geom = "line") #No
+mde_sexP<-cat_plot(mde_sex, pred = amdelt, modx = irsex, geom = "line") #No
+mde_eduP<-cat_plot(mde_edu, pred = IREDUHIGHST2, modx = amdelt, geom = "line") #No
+mde_empP<-cat_plot(mde_emp, pred = amdelt, modx = wrkdpstyr, geom = "line") #No
+mde_incomeP<-cat_plot(mde_income, pred = amdelt, modx = income, geom = "line") #No
+mde_toleranceP<-cat_plot(mde_tolerance, pred = amdelt, modx = alcndmor, geom = "line") #No
+mde_inP<-interact_plot(mde_in, pred = inpatient, modx = amdelt, legend.main = "MDE", 
+                        x.label = "# of Times Receiving Inpatient Treatment",
                         modx.labels = c("Yes","No"),
-                        main.title = "Interactions between MDE and Outpatient Treatment")
-severity_inP<-interact_plot(severity_in, pred = inpatient , modx = ASDSOVL2)  #No
+                        main.title = "Interactions between MDE and Inpatient Treatment")
+```
+
+```{r}
+## Age
 age_sexP<-cat_plot(age_sex, pred = CATAG6, modx = irsex, geom = "line")  #No
+age_empP<-cat_plot(age_emp, pred = CATAG6, modx = wrkdpstyr, geom = "line") #No
 age_eduP<-cat_plot(age_edu, pred = IREDUHIGHST2, modx = CATAG6,geom = "line",
                    legend.main = "Age",
                    x.label = "Education Level",
@@ -166,43 +215,108 @@ age_eduP<-cat_plot(age_edu, pred = IREDUHIGHST2, modx = CATAG6,geom = "line",
                                    "College graduate or higher"),
                    main.title = "Interactions between Education Level and Age")+
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+```
+
+```{r}
+## Marital
 mar_empP<-cat_plot(mar_emp, pred = irmarit, modx = wrkdpstyr, geom = "line")  #No
 mar_drinkP<-cat_plot(mar_drink, pred = irmarit, modx = alcndmor, geom = "line")  #No
+mar_incomeP<-cat_plot(mar_income, pred = income , modx = irmarit, geom = "line", legend.main = "Marital Status",
+                      x.label = "Income Level",
+                      pred.labels = c("Less than $20,000","$20,000-$49,999","$50,000-$74,999","$75,000 or More"),
+                      modx.labels = c("Married","Widowed","Divorced or seperated","Never been married"),
+                      main.title = "Interactions between Income Level and Marital Status") 
 mar_inP<-interact_plot(mar_in, pred = inpatient , modx = irmarit) #No
-sex_sympP<-cat_plot(sex_symp, pred = irsex, modx = ALCWD2SX, geom = "line") #No
+mar_sympP<-cat_plot(mar_symp, pred = irmarit , modx = ALCWD2SX, geom = "line",legend.main = "Two or more \nwithdrawal symptoms",
+                    pred.labels = c("Married","Widowed","Divorced or seperated","Never been married"),
+                    main.title = "Interactions between Withdrawal Symptoms and Marital Status",
+                    x.label = "Marital Status",
+                    modx.labels = c(0,"Yes","No"))+
+  theme(axis.text.x = element_text(angle = 30, vjust = 1, hjust=1))
+```
+
+```{r}
+## Education
 edu_inP<-interact_plot(edu_in, pred = inpatient, modx = IREDUHIGHST2, colors="Rainbow",
                        legend.main = "Highest Education Level",
                        x.label = "# of Times Receiving Inpatient Treatment",
                        modx.labels = c("5th grade or less","6th grade","7th grade","8th grade","9th grade",
-                                       "10th grade","11th/12th grade completed, no diploma","High school diploma",
+                                       "10th grade","11th/12th grade completed, \nno diploma","High school diploma",
                                        "College credit, no degree","Associate's degree",
                                        "College graduate or higher"),
-                       main.title = "Interactions between Education Level and Inpatient Treatment")    #yes
+                       main.title = "Interactions: \nEducation & Inpatient Treatment") +
+  theme(axis.title.x=element_text(size=7), plot.title = element_text(size = 10), legend.text = element_text(size = 6), 
+        legend.title = element_text(size = 8), aspect.ratio=2/1) #yes
 edu_outP<-interact_plot(edu_out, pred = outpatient, modx = IREDUHIGHST2, colors="Rainbow",
                         legend.main = "Highest Education Level",
                         modx.labels = c("5th grade or less","6th grade","7th grade","8th grade","9th grade",
-                                       "10th grade","11th/12th grade completed, no diploma","High school diploma",
+                                       "10th grade","11th/12th grade completed, \nno diploma","High school diploma",
                                        "College credit, no degree","Associate's degree",
                                        "College graduate or higher"),
                         x.label = "# of Times Receiving Outpatient Treatment",
-                        main.title = "Interactions between Education Level and Outpatient Treatment")  #yes
+                        main.title = "Interactions: \nEducation & Outpatient Treatment") +
+  theme(axis.title.x=element_text(size=7), plot.title = element_text(size = 10), legend.text = element_text(size = 6), 
+        legend.title = element_text(size = 8), aspect.ratio=2/1)#yes
 ```
 
 ```{r}
+## Sex
+sex_eduP<-cat_plot(sex_edu, modx = irsex, pred = IREDUHIGHST2, geom = "line") #No
+
+## Race
+race_inP<-interact_plot(race_in, pred = inpatient, modx = NEWRACE2, geom = "line",legend.main = "Race",
+                        x.label = "# of Times Receiving Inpatient Treatment",
+                        main.title = "Interactions between Income Level and Marital Status",
+                        modx.labels = c("NonHisp White","NonHisp Black/Afr Am","NonHisp Native Am/AK Native",
+                                        "NonHisp Native HI/Other Pac Isl","NonHisp Asian","NonHisp more than one race",
+                                        "Hispanic"))
+
+## Employment
+emp_incomeP<-cat_plot(emp_income, modx = wrkdpstyr, pred = income, geom = "line") #No
+emp_inP<-interact_plot(emp_in, pred = inpatient, modx = wrkdpstyr, geom = "line") #no
+
+## Income
+income_toleranceP<-cat_plot(income_tolerance, pred = income, modx = alcndmor, geom = "line") #no
+income_inP<-interact_plot(income_in, pred = inpatient, modx = income, geom = "line") #no
+
+## Symptoms
+symp_outP<-interact_plot(symp_out, pred = outpatient, modx = ALCWD2SX, geom = "line", 
+                         legend.main = "Two or more \nwithdrawal symptoms",
+                         modx.labels = c(0,"Yes","No"),
+                         x.label = "# of Times Receiving Outpatient Treatment",
+                         main.title = "Interactions between Withdrawal Symptoms and Outpatient Treatment")
+```
+
+
+```{r}
+#Figure 1: interaction between outpatient treatment and MDE
 mde_outP
 ```
 
 ```{r}
+#Figure 2: Interaction between education and treatment
+edu<-ggarrange(edu_inP+theme(legend.margin = margin(t = 0, unit='cm')), 
+               edu_outP+theme(legend.margin = margin(t = 0, unit='cm')), 
+               nrow=1, common.legend = TRUE, legend="right")
+edu
+```
+
+```{r}
+#Fig 3: interaction between outpatient and withdrawal symptoms
+symp_outP
+```
+
+```{r}
+#Figure 4: interaction between age and education
 age_eduP
 ```
 
 ```{r}
-edu_inP
+#Figure 5: Marital status interactions
+mar_incomeP
+mar_sympP
 ```
 
-```{r}
-edu_outP
-```
 
 
 ## Classification
@@ -227,9 +341,9 @@ ctrl = trainControl(method="repeatedcv", number = 10, repeats = 5)
 ```{r}
 train_knn<-sr_train
 #train_knn$risk_level = factor(train_knn$risk_level, levels = c(1,2,3,4), labels = c("no","low","moderate","high"))
-trctrl_knn= trainControl(method = "repeatedcv", number = 6, repeats = 2, classProbs = TRUE)
+trctrl_knn= trainControl(method = "repeatedcv", number = 10, repeats = 5, classProbs = TRUE)
 knn = caret::train(risk_level ~ ., data = train_knn, method = 'knn', trControl=trctrl_knn,
-            preProcess = c("center", "scale"),tuneLength = 20)
+            preProcess = c("center", "scale"),tuneLength = 25)
 #plot(knn)
 ```
 
@@ -237,7 +351,7 @@ knn = caret::train(risk_level ~ ., data = train_knn, method = 'knn', trControl=t
 ```{r}
 ctrl_dt = trainControl(method="repeatedcv",number=10, repeats=5)
 
-dtree = caret::train(risk_level~., data = sr_train, method = "rpart", trControl = ctrl_dt,tuneLength = 30)
+dtree = caret::train(risk_level~., data = sr_train, method = "rpart", trControl = ctrl_dt,tuneLength = 25)
 #prp(dtree$finalModel)
 ```
 
@@ -245,7 +359,7 @@ dtree = caret::train(risk_level~., data = sr_train, method = "rpart", trControl 
 ```{r}
 ctrl_rf = trainControl(method = "oob")
 rf = caret::train(risk_level ~., data = sr_train, method = "rf", trControl = ctrl_rf,
-           tuneLength = 8, ntree = 150, importance = TRUE)
+           tuneLength = 25, ntree = 250, importance = TRUE)
 ```
 
 #### Neural Network
